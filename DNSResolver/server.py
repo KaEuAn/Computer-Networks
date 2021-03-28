@@ -20,12 +20,15 @@ def get_records():
     if domain is None:
         return "Error, domain is None"
 
-    answer = {"domain": domain, "trace": trace}
+    answer = {"domain": domain, "trace": []}
     try:
-        ip_info = dnsr.get_ip(domain, trace)
+        ip_info, tracer = dnsr.get_ip(domain, trace)
+        for name in ip_info.keys():
+            ip_info[name] = list(ip_info[name])
+        answer["domain"] = ip_info
+        answer["trace"] = tracer
     except:
-        return "Error, bad domain or internet connection problems"
-    answer["domain"] = ip_info
+        answer["domain"] = "Error, bad domain or internet connection problems"
 
     return json.dumps(answer)
 

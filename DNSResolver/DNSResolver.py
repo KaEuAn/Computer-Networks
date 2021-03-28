@@ -88,9 +88,12 @@ class DNSResolver:
         self.id = [0, 0]
         self.query_len = 0
         self.clean_query_cache()
+        self.is_tracing = False
 
     def clean_query_cache(self):
         self.query_cache = {"a.root.servers.net": IPHolder("a.root.servers.net", "198.41.0.4")}
+        self.trace = []
+        self.is_tracing = False
 
     def next_id(self):
         for i in (1, 0):
@@ -118,7 +121,7 @@ class DNSResolver:
         self.query_len = len(message)
         return message, cur_id
 
-    def parse(self, raw_data, query_name):
+    def parse(self, raw_data):
         answer_count = bytes2int(raw_data[6], raw_data[7])
         servers_count = bytes2int(raw_data[8], raw_data[9])
         data = raw_data[self.query_len:]
@@ -129,6 +132,7 @@ class DNSResolver:
             qtype = bytes2int(data[2], data[3])
             ttl = bytes2int(data[8], data[9]) + bytes2int(data[6], data[7]) * 256 * 256
             dlen = bytes2int(data[10], data[11])
+
             if qtype == 1 or qtype == 28:
                 if name not in ans.keys():
                     ans[name] = IPHolder(name)
@@ -136,9 +140,8 @@ class DNSResolver:
                 ans[name].update_ip_value(qtype)
             if qtype == 2:
                 name = name_by_offset(raw_data, len(raw_data) - len(data) + 12)
-                if name not in ans.keys() and name != query_name:
+                if name not in ans.keys():
                     ans[name] = IPHolder(name)
-            #print("answer from server", name, qtype, ttl, dlen, data[12:12+dlen])
             data = data[12+dlen:]
         return ans, answer_count > 0
 
@@ -160,49 +163,72 @@ class DNSResolver:
             raise Exception("timeout search of {}, dns_server {}, dns_port{}".format(name, dns_server, dns_port))
         return raw_data
 
-    def lookup(self, domain, start_pair=None):
-        if start_pair is None:
-            start_pair = (self.rootServer.url, domain)
-        server_holders = [start_pair]
-        self.cache[domain] = {"TTL": float("inf"), "holders": {}}
-        for server, name in server_holders:
-            print("server", server.url, server.IPv4, "name", name)
-            holders, is_answer = self.parse(self.get_udp_request(name, server.IPv4, 53), name)
-            if not is_answer:
-                print_holders(holders)
-                for url, holder in holders.items():
-                    if not holder.is_empty():
-                        print("added", holder.url, name)
-                        server_holders.append((holder, name))
+    def lookup(self, domain, start_server=None, is_query=True):
+        if not is_query and domain in self.query_cache:
+            return
+        if start_server is None:
+            start_server = self.rootServer.url
+            if is_query:
+                self.cache[domain] = {"TTL": float("inf"), "holders": []}
+        server, name = start_server, domain
+        #print("server", server, self.query_cache[server].IPv4, "name", name)
+        holders, is_answer = self.parse(self.get_udp_request(name, self.query_cache[server].IPv4, 53))
+        #print_holders(holders)
+        #print(is_answer)
+
+        if not is_answer:
+            if self.is_tracing:
+                self.trace.append(server)
+            for url, holder in holders.items():
+                if not holder.is_empty():
+                    if url in self.query_cache.keys():
+                        if self.query_cache[url].is_empty():
+                            self.query_cache[url] = holder
                     else:
-                        print("added", server.url, url)
-                        server_holders.append((server, url))
-            elif domain == name and is_answer:
-                holders6, is_answer6 = self.parse(self.get_udp_request(domain, server.IPv4, 53, qtype=28))
-                for url, holder in holders.items():
-                    if url in holders6.keys():
-                        holder6 = holders6[url]
-                        holder.update(holder6.IPv6, 28, holder6.ttl)
-                    self.cache[domain]["holders"][url] = holder
-            else: #is_answer and domain != name
-                for url, holder in holders.items():
-                    server_holders.append((holder, domain))
-
-        for url, holder in self.cache[domain]["holders"].items():
-            if self.cache[domain]["TTL"] > holder.ttl:
-                self.cache[domain]["TTl"] = holder.ttl
-
+                        self.query_cache[url] = holder
+                    self.lookup(name, url, is_query)
+                else:
+                    if url not in self.query_cache.keys() or self.query_cache[url].is_empty():
+                        self.lookup(url, start_server=server, is_query=False)
+                    if url not in self.query_cache.keys() or self.query_cache[url].is_empty():
+                        self.lookup(url, start_server=None, is_query=False)
+                    self.lookup(name, url, is_query)
+        elif is_query:
+            if self.is_tracing:
+                self.trace.append(server)
+            holders6, is_answer6 = self.parse(self.get_udp_request(domain, self.query_cache[server].IPv4, 53, qtype=28))
+            for url, holder in holders.items():
+                if url in holders6.keys():
+                    holder6 = holders6[url]
+                    holder.update(holder6.IPv6, 28, holder6.ttl)
+                self.cache[domain]["holders"].append(holder)
+        else:
+            if self.is_tracing:
+                self.trace.append(server)
+            for url, holder in holders.items():
+                if holder.is_empty():
+                    continue
+                self.query_cache[url] = holder
 
 
     def get_ip(self, domain, trace=False):
         self.clean_query_cache()
-        if trace or not domain in self.cache.keys() or self.cache[domain]["TTL"] < time.clock():
+        if trace:
+            self.is_tracing = True
+        if trace or domain not in self.cache.keys() or self.cache[domain]["TTL"] < time.clock():
             self.lookup(domain)
-        holders = self.cache[domain]["holders"]
-        answer = {}
-        for name, holder in holders.items():
-            answer[name] = holder.info()
-        return answer
+            for holder in self.cache[domain]["holders"]:
+                if self.cache[domain]["TTL"] > holder.ttl:
+                    self.cache[domain]["TTl"] = holder.ttl
+
+            answer = {"IPv4": set(), "IPv6": set()}
+            for holder in self.cache[domain]["holders"]:
+                if holder.IPv4 is not None:
+                    answer["IPv4"].add(holder.IPv4)
+                if holder.IPv6 is not None:
+                    answer["IPv6"].add(holder.IPv6)
+            self.cache[domain]["holders"] = answer
+        return self.cache[domain]["holders"], self.trace
 
 
 if __name__ == "__main__":
