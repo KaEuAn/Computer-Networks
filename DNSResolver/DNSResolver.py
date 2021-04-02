@@ -44,14 +44,14 @@ class IPHolder:
         self.url = url
         self.IPv4 = ipv4
         self.IPv6 = ipv6
-        self.ttl = time.clock() + ttl
+        self.ttl = time.perf_counter() + ttl
 
     def update(self, address, qtype, ttl):
         if qtype == 1:
             self.IPv4 = address
         if qtype == 28:
             self.IPv6 = address
-        self.ttl = min(time.clock() + ttl, self.ttl)
+        self.ttl = min(time.perf_counter() + ttl, self.ttl)
 
     def update_ip_value(self, qtype):
         if qtype == 1:
@@ -65,7 +65,7 @@ class IPHolder:
     def info(self):
         answer = {}
         answer['url'] = self.url
-        answer['ttl'] = self.ttl - time.clock()
+        answer['ttl'] = self.ttl - time.perf_counter()
         answer['IPv4'] = self.IPv4
         answer['IPv6'] = self.IPv6
         return answer
@@ -215,7 +215,7 @@ class DNSResolver:
         self.clean_query_cache()
         if trace:
             self.is_tracing = True
-        if trace or domain not in self.cache.keys() or self.cache[domain]["TTL"] < time.clock():
+        if trace or domain not in self.cache.keys() or self.cache[domain]["TTL"] < time.perf_counter():
             self.lookup(domain)
             for holder in self.cache[domain]["holders"]:
                 if self.cache[domain]["TTL"] > holder.ttl:
