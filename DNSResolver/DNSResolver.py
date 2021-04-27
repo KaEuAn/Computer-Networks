@@ -13,7 +13,7 @@ def name_to_bytes(name):
     splitted = name.split(".")
     if splitted[-1] == "":
         splitted = splitted[:-1]
-        splitted[-1] += "."
+    print(splitted)
     ans = b""
     for part in splitted:
         ans += int_to_bytes(len(part)) + part.encode("utf-8")
