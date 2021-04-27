@@ -3,7 +3,7 @@ import time
 
 
 class Traceroute:
-    def __init__(self, dst_ip, dst_port=33434, quantity=3, timeout=5, max_ttl=30):
+    def __init__(self, dst_ip, dst_port=33434, quantity=3, timeout=1, max_ttl=30):
         self.dst_ip = dst_ip
         self.dst_port = dst_port
         self.quantity = quantity
@@ -12,7 +12,7 @@ class Traceroute:
         self.rtt = []
 
     def run(self):
-        for cur_ttl in range(1, self.max_ttl):
+        for cur_ttl in range(1, self.max_ttl + 1):
             receive_socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_RAW, proto=socket.IPPROTO_ICMP)
             receive_socket.settimeout(self.timeout)
             start_time = time.time()
@@ -20,12 +20,12 @@ class Traceroute:
             send_socket.setsockopt(socket.SOL_IP, socket.IP_TTL, cur_ttl)
             self.rtt.append([])
 
-            send_socket.sendto(b"mth", (self.dst_ip, self.dst_port))
             for i in range(self.quantity):
                 try:
-                    _, addr = receive_socket.recvfrom(1024)
+                    send_socket.sendto(b"", (self.dst_ip, self.dst_port))
+                    smth, addr = receive_socket.recvfrom(1024)
                     end_time = time.time()
-                    self.rtt[-1].append((addr, end_time - start_time))
+                    self.rtt[-1].append((addr[0], round(end_time - start_time, 4)))
                 except socket.error:
                     self.rtt[-1].append((-1, -1))
             receive_socket.close()
@@ -41,15 +41,15 @@ class Traceroute:
 
     def print_answer(self):
         for ttl, answers in enumerate(self.rtt):
-            print("ttl {}: ".format(ttl), end='')
+            print("ttl {}: ".format(ttl + 1), end='')
             for addr, rtt in answers:
                 if addr == -1:
-                    print("timeout;", end="")
+                    print("timeout;", end="\t")
                 else:
-                    print("address - {}, RTT - {};".format(addr, rtt), end='')
+                    print("address - {}, RTT - {};".format(addr, rtt), end='\t')
             print()
 
 
 if __name__ == "__main__":
-    tr = Traceroute("55.66.77.88")
+    tr = Traceroute("5.255.255.60")
     tr.run()
