@@ -2,3 +2,6 @@
 *.zip
 *ipynb*
 *pycache*
+*png
+*txt
+*pcap
