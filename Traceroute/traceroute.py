@@ -36,6 +36,12 @@ class Traceroute:
         self.json = args.json
         self.src_ip = args.srcip
 
+    def increment_dst_port(self):
+        if self.dst_port == 36000:
+            self.dst_port = 33434
+        else:
+            self.dst_port = self.dst_port + 1
+
     def run(self):
         for cur_ttl in range(1, self.max_ttl + 1):
             receive_socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_RAW, proto=socket.IPPROTO_ICMP)
@@ -58,10 +64,11 @@ class Traceroute:
             receive_socket.close()
             send_socket.close()
             got_destination = False
-            for addr, _ in self.rtt[-1]:
-                if addr == self.dst_ip:
+            for addr, port in self.rtt[-1]:
+                if addr == self.dst_ip and port == self.dst_port:
                     got_destination = True
                     break
+            self.increment_dst_port()
             if got_destination:
                 break
         self.print_answer()
